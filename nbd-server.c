@@ -131,8 +131,6 @@
  * multiple file thingy isn't used.
  */
 #define OFFT_MAX (((((off_t)1)<<((sizeof(off_t)-1)*8))-1)<<7)+127
-#define LINELEN 256	  /**< Size of static buffer used to read the
-			    authorization file (yuck) */
 #define BUFSIZE (1024*1024) /**< Size of buffer that can hold requests */
 #define GIGA (1*1024*1024*1024) /**< 1 Gigabyte. Used as hunksize when doing
 				  the multiple file thingy. @todo: make this a
@@ -145,7 +143,7 @@
 #define F_AUTOREADONLY 8  /**< flag to tell us a file is set to autoreadonly */
 GHashTable *children;
 char pidfname[256]; /**< name of our PID file */
-char default_authname[] = "/etc/nbd_server.allow"; /**< default name of allow file */
+char default_authname[] = "No such IP!"; /**< default name of allow file */
 
 /**
  * Variables associated with a server.
@@ -191,24 +189,7 @@ typedef struct {
  * @return 0 - authorization refused, 1 - OK
  **/
 int authorized_client(CLIENT *opts) {
-	FILE *f ;
-   
-	char line[LINELEN]; 
-
-	if ((f=fopen(opts->server->authname,"r"))==NULL) {
-		msg4(LOG_INFO,"Can't open authorization file %s (%s).",
-		     opts->server->authname,strerror(errno)) ;
-		return 1 ; 
-	}
-  
-	while (fgets(line,LINELEN,f)!=NULL) {
-		if (strncmp(line,opts->clientname,strlen(opts->clientname))==0) {
-			fclose(f);
-			return 1;
-		}
-	}
-	fclose(f) ;
-	return 0 ;
+	return !strcmp(opts->clientname, opts->server->authname);
 }
 
 /**
@@ -293,6 +274,7 @@ SERVER* cmdline(int argc, char *argv[]) {
 
 	serve=g_malloc(sizeof(SERVER));
 	serve->hunksize=OFFT_MAX;
+	serve->authname = default_authname;
 	while((c=getopt_long(argc, argv, "-a:cl:mr", long_options, &i))>=0) {
 		switch (c) {
 		case 1:
@@ -331,7 +313,6 @@ SERVER* cmdline(int argc, char *argv[]) {
 		case 'm':
 			serve->flags |= F_MULTIFILE;
 			serve->hunksize = 1*GIGA;
-			serve->authname = default_authname;
 			break;
 		case 'c': 
 			serve->flags |=F_COPYONWRITE;
