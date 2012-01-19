@@ -53,6 +53,8 @@
 
 /* Includes LFS defines, which defines behaviours of some of the following
  * headers, so must come before those */
+#define _GNU_SOURCE
+#define ALIGN 4096
 #include "lfs.h"
 
 #include <sys/types.h>
@@ -629,6 +631,8 @@ void negotiate(CLIENT *client) {
  * @return never
  **/
 int mainloop(CLIENT *client) {
+	static char buf[BUFSIZE] __attribute__ ((aligned(ALIGN)));
+	size_t len;
 	struct nbd_request request;
 	struct nbd_reply reply;
 	gboolean go_on=TRUE;
@@ -640,8 +644,6 @@ int mainloop(CLIENT *client) {
 	reply.magic = htonl(NBD_REPLY_MAGIC);
 	reply.error = 0;
 	while (go_on) {
-		char buf[BUFSIZE];
-		size_t len;
 #ifdef DODBG
 		i++;
 		printf("%d: ", i);
@@ -668,7 +670,7 @@ int mainloop(CLIENT *client) {
 
 		if (request.magic != htonl(NBD_REQUEST_MAGIC))
 			err("Not enough magic.");
-		if (len > BUFSIZE-sizeof(struct nbd_reply))
+		if (len > BUFSIZE - ALIGN)
 			err("Request too big!");
 #ifdef DODBG
 		printf("%s from %Lu (%Lu) len %d, ", request.type ? "WRITE" :
@@ -707,15 +709,15 @@ int mainloop(CLIENT *client) {
 		/* READ */
 
 		DEBUG("exp->buf, ");
-		if (expread(request.from, buf + sizeof(struct nbd_reply), len, client)) {
+		if (expread(request.from, buf + ALIGN, len, client)) {
 			DEBUG("Read failed: %m");
 			ERROR(client, reply);
 			continue;
 		}
 
 		DEBUG("buf->net, ");
-		memcpy(buf, &reply, sizeof(struct nbd_reply));
-		writeit(client->net, buf, len + sizeof(struct nbd_reply));
+		memcpy(buf + ALIGN - sizeof(struct nbd_reply), &reply, sizeof(struct nbd_reply));
+		writeit(client->net, buf + ALIGN - sizeof(struct nbd_reply), len + sizeof(struct nbd_reply));
 		DEBUG("OK!\n");
 	}
 	return 0;
@@ -741,11 +743,11 @@ int splitexport(CLIENT* client) {
 			tmpname=g_strdup(client->exportname);
 		}
 		DEBUG2( "Opening %s\n", tmpname );
-		if((fhandle = open(tmpname, (client->server->flags & F_READONLY) ? O_RDONLY : O_RDWR)) == -1) {
+		if((fhandle = open(tmpname, O_DIRECT | ((client->server->flags & F_READONLY) ? O_RDONLY : O_RDWR))) == -1) {
 			/* Read WRITE ACCESS was requested by media is only read only */
 			client->server->flags |= F_AUTOREADONLY;
 			client->server->flags |= F_READONLY;
-			if((fhandle = open(tmpname, O_RDONLY)) == -1)
+			if((fhandle = open(tmpname, O_DIRECT | O_RDONLY)) == -1)
 				err("Could not open exported file: %m");
 		}
 		g_array_insert_val(client->export,i/client->server->hunksize,fhandle);
